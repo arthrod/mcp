@@ -1,4 +1,3 @@
-import zodToJsonSchema from "zod-to-json-schema";
 
 import {
   ClickTool,
@@ -7,7 +6,13 @@ import {
   SelectOptionTool,
   SnapshotTool,
   TypeTool,
-} from "@repo/types/mcp/tool";
+  clickSchema,
+  dragSchema,
+  hoverSchema,
+  selectOptionSchema,
+  snapshotSchema,
+  typeSchema
+} from "./schemas";
 
 import type { Context } from "@/context";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot";
@@ -18,7 +23,7 @@ export const snapshot: Tool = {
   schema: {
     name: SnapshotTool.shape.name.value,
     description: SnapshotTool.shape.description.value,
-    inputSchema: zodToJsonSchema(SnapshotTool.shape.arguments),
+    inputSchema: snapshotSchema,
   },
   handle: async (context: Context) => {
     return await captureAriaSnapshot(context);
@@ -29,7 +34,7 @@ export const click: Tool = {
   schema: {
     name: ClickTool.shape.name.value,
     description: ClickTool.shape.description.value,
-    inputSchema: zodToJsonSchema(ClickTool.shape.arguments),
+    inputSchema: clickSchema,
   },
   handle: async (context: Context, params) => {
     const validatedParams = ClickTool.shape.arguments.parse(params);
@@ -51,7 +56,7 @@ export const drag: Tool = {
   schema: {
     name: DragTool.shape.name.value,
     description: DragTool.shape.description.value,
-    inputSchema: zodToJsonSchema(DragTool.shape.arguments),
+    inputSchema: dragSchema,
   },
   handle: async (context: Context, params) => {
     const validatedParams = DragTool.shape.arguments.parse(params);
@@ -73,7 +78,7 @@ export const hover: Tool = {
   schema: {
     name: HoverTool.shape.name.value,
     description: HoverTool.shape.description.value,
-    inputSchema: zodToJsonSchema(HoverTool.shape.arguments),
+    inputSchema: hoverSchema,
   },
   handle: async (context: Context, params) => {
     const validatedParams = HoverTool.shape.arguments.parse(params);
@@ -95,7 +100,7 @@ export const type: Tool = {
   schema: {
     name: TypeTool.shape.name.value,
     description: TypeTool.shape.description.value,
-    inputSchema: zodToJsonSchema(TypeTool.shape.arguments),
+    inputSchema: typeSchema,
   },
   handle: async (context: Context, params) => {
     const validatedParams = TypeTool.shape.arguments.parse(params);
@@ -117,7 +122,7 @@ export const selectOption: Tool = {
   schema: {
     name: SelectOptionTool.shape.name.value,
     description: SelectOptionTool.shape.description.value,
-    inputSchema: zodToJsonSchema(SelectOptionTool.shape.arguments),
+    inputSchema: selectOptionSchema,
   },
   handle: async (context: Context, params) => {
     const validatedParams = SelectOptionTool.shape.arguments.parse(params);

@@ -25,3 +25,7 @@ export function killProcessOnPort(port: number) {
     console.error(`Failed to kill process on port ${port}:`, error);
   }
 }
+
+export function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
