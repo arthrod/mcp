@@ -16,7 +16,7 @@ console.log("🔍 Debug: About to import child_process");
 const { exec } = require("node:child_process");
 console.log("🔍 Debug: All imports completed");
 
-const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const arcPath = "/Applications/Arc.app/Contents/MacOS/Arc";
 // Zod schemas for configuration validation
 const StagehandConfigSchema = z.object({
   mode: z.enum(["api", "experimental"]).default("experimental"),
@@ -55,22 +55,6 @@ class StagehandSessionManager {
     this.currentMode = null; // 'api' or 'experimental'
     this.viewport = { width: 3024, height: 1964 }; // XDR Display P3 1600 aspect ratio
     this.setupSignalHandlers();
-  }
-
-  async getBravePath() {
-    console.log("🔍 Detecting Brave browser path...");
-    
-    let path;
-    if (platform === "darwin") {
-      path = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
-    } else if (platform === "win32") {
-      path = "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe";
-    } else {
-      path = "/usr/bin/brave-browser";
-    }
-
-    console.log(`📍 Brave path detected: ${path}`);
-    return path;
   }
 
   async getMacScreenResolution() {
@@ -116,9 +100,12 @@ class StagehandSessionManager {
 
       // Get API key or use empty string
       const apiKey = process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "";
+      console.log("🔍 Debug: API key obtained:", apiKey ? "HAS VALUE" : "EMPTY");
 
       // If viewport is not provided, try to dynamically get it for macOS
+      console.log("🔍 Debug: Checking viewport config...");
       if (!customConfig.viewport && process.platform === "darwin") {
+        console.log("🔍 Debug: Attempting to get Mac screen resolution...");
         try {
           const resolution = await this.getMacScreenResolution();
           console.log(`🎯 Detected Mac screen resolution: ${resolution.width}x${resolution.height}`);
@@ -129,11 +116,14 @@ class StagehandSessionManager {
       }
 
       // Ensure customConfig is a valid object
+      console.log("🔍 Debug: Validating customConfig...");
       if (!customConfig || typeof customConfig !== "object") {
+        console.log("🔍 Debug: customConfig was invalid, resetting to empty object");
         customConfig = {};
       }
 
       // Create configuration with defaults
+      console.log("🔍 Debug: Creating validated config object...");
       const validatedConfig = {
         mode: mode || "experimental",
         viewport: customConfig.viewport || { width: 3024, height: 1964 },
@@ -145,14 +135,14 @@ class StagehandSessionManager {
         selfHeal: customConfig.selfHeal !== undefined ? customConfig.selfHeal : true,
         waitForCaptchaSolves: customConfig.waitForCaptchaSolves !== undefined ? customConfig.waitForCaptchaSolves : true,
       };
+      console.log("🔍 Debug: validatedConfig created successfully:", JSON.stringify(validatedConfig, null, 2));
 
-      console.log(`🚀 Initializing Stagehand with Brave in ${validatedConfig.mode} mode...`);
+      console.log(`🚀 Initializing Stagehand with Chrome in ${validatedConfig.mode} mode...`);
       console.log(
         `📐 Viewport dimensions: ${validatedConfig.viewport?.width || this.viewport.width}x${validatedConfig.viewport?.height || this.viewport.height}`,
       );
 
-      const bravePath = await this.getBravePath();
-
+      console.log("🔍 Debug: Creating base configuration...");
       const baseConfig = {
         env: "LOCAL",
         modelName: validatedConfig.modelName,
@@ -165,15 +155,8 @@ class StagehandSessionManager {
         enableCaching: validatedConfig.enableCaching,
         waitForCaptchaSolves: validatedConfig.waitForCaptchaSolves,
         localBrowserLaunchOptions: {
-          executablePath: chromePath,
-          headless: false, // you already set this
-          args: [
-            "--no-first-run",
-            "--disable-blink-features=AutomationControlled",
-            "--enable-features=PrivateStateTokens", // PAT flag
-            "--start-maximized",
-          ],
-          ignoreDefaultArgs: ["--enable-automation"],
+          executablePath: arcPath,
+          cdpUrl: "http://localhost:9222",
         },
       };
 
@@ -190,8 +173,20 @@ class StagehandSessionManager {
 
       console.log("🔍 Debug: Final baseConfig:", JSON.stringify(baseConfig, null, 2));
       console.log("🔍 Debug: Creating Stagehand instance");
-      this.stagehand = new Stagehand(baseConfig);
-      console.log("🔍 Debug: Stagehand instance created successfully");
+      try {
+        this.stagehand = new Stagehand({
+          env: "LOCAL",
+          experimental: true,
+          localBrowserLaunchOptions: {
+            executablePath: arcPath,
+            cdpUrl: "http://localhost:9222",
+          },
+        });
+        console.log("🔍 Debug: Stagehand instance created successfully");
+      } catch (constructorError) {
+        console.error("🔍 Debug: Stagehand constructor failed:", constructorError);
+        throw constructorError;
+      }
 
       console.log("🔄 Initializing Stagehand instance...");
       try {

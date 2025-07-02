@@ -52,7 +52,7 @@ Provide a brief, clear summary of what the user is asking for, ignoring any test
         # Create a simple agent for summarization
         summary_agent = Agent(model, result_type=str)
         result = await summary_agent.run(summary_prompt)
-        summary = result.data
+        summary = result.output
         logger.info(f"📝 Request summary: {summary}")
         return summary
     except Exception as e:
@@ -400,7 +400,7 @@ class PydanticAIWebAutomationAgent:
 
             if result["success"]:
                 observations = result['data']
-                ctx.deps.execution_history.append(f"Observed: {instruction}")
+                ctx.deps.execution_history.append(f"Observed: {instruction}, that's what we saw {observations}")
                 ctx.deps.task_state.update_observation(str(observations))
 
                 # Format observations nicely
@@ -434,7 +434,7 @@ class PydanticAIWebAutomationAgent:
 
         @self.agent.tool
         async def inject_prompt(ctx: RunContext[AgentDependencies], prompt_text: str = "") -> str:
-            """Inject prompt AS-IS into ChatGPT input field - NO MODIFICATIONS!"""
+            """Inject prompt AS-IS into copilot input field - NO MODIFICATIONS!"""
             # Get the current prompt from queue if not provided
             if not prompt_text and ctx.deps.task_state.processing_queue:
                 prompt_text = ctx.deps.task_state.processing_queue[0]
@@ -554,7 +554,7 @@ Provide a brief explanation."""
             try:
                 check_agent = Agent(model, result_type=str)
                 result = await check_agent.run(check_prompt)
-                verification = result.data
+                verification = result.output
                 logger.info(f"✅ Request fulfillment check: {verification}")
                 console.print(Panel(
                     f"[cyan]Request Summary:[/cyan] {summary}\n"
@@ -688,11 +688,11 @@ You are a robust web automation agent that executes tasks step by step.
    - If still stuck → wait_for_user_input("Security challenge detected, please complete")
    - Authentication errors → always use wait_for_user_input
 
-3. FOR CHATGPT/AI SERVICES - SIMPLIFIED STEPS:
+3. FOR copilot/AI SERVICES - SIMPLIFIED STEPS:
    - Navigate to service
    - Observe if "Just a moment..." → handle_security_challenge(15)
    - Observe if logged in or need auth
-   - If not logged in → wait_for_user_input("Please log in to ChatGPT")
+   - If not logged in → wait_for_user_input("Please log in to copilot")
    - After login → observe chat interface is ready
    - perform_action("Click on the message input field") → observe
    - inject_prompt() ← INJECTS PROMPT AS-IS, NO MODIFICATIONS!
@@ -705,7 +705,7 @@ You are a robust web automation agent that executes tasks step by step.
    - extract_ai_response() ← Logs all raw data!
 
 4. SUBMITTING PROMPTS:
-   - ChatGPT uses an ARROW BUTTON (→) to send messages, not Enter key
+   - copilot uses an ARROW BUTTON (→) to send messages, not Enter key
    - The send button is usually near the input field
    - MUST click this arrow/send button, typing alone won't submit!
    - inject_prompt() saves prompts AS-IS with NO modifications
@@ -737,13 +737,13 @@ AVAILABLE TOOLS:
 - save_extraction_result: Save prompt AS-IS/response pair with raw data
 - get_current_state: Check task progress
 
-EXAMPLE WORKFLOW FOR CHATGPT:
+EXAMPLE WORKFLOW FOR copilot:
 1. get_current_state()
-2. navigate_to_url("https://chat.openai.com")
+2. navigate_to_url("https://www.bing.com")
 3. observe_page("Check what loaded")
 4. [If "Just a moment..."] handle_security_challenge(15)
 5. observe_page("Check if security passed")
-6. [If login needed] wait_for_user_input("Please log in to ChatGPT")
+6. [If login needed] wait_for_user_input("Please log in to copilot")
 7. observe_page("Verify chat interface is ready")
 8. perform_action("Click on the message input area")
 9. observe_page("Verify input is focused and ready")
@@ -959,7 +959,7 @@ async def main() -> None:
     # Get target service
     service_url = Prompt.ask(
         "[cyan]Enter the URL of the service to use[/cyan]",
-        default="https://chat.openai.com"
+        default="https://copilot.microsoft.com"
     )
 
     instructions = f"""

@@ -19,6 +19,7 @@ const NavigateRequestSchema = z.object({
 
 const ActRequestSchema = z.object({
   action: z.string().min(1).describe("Action to perform on the page"),
+  domSettleTimeoutMs: z.number().optional().describe("DOM settle timeout in milliseconds"),
 });
 
 const ObserveRequestSchema = z.object({
@@ -84,7 +85,7 @@ const requireSession = (req, res, next) => {
 // Middleware for request logging
 const logRequest = (req, res, next) => {
   console.log(`📥 ${req.method} ${req.path} - ${new Date().toISOString()}`);
-  if (Object.keys(req.body).length > 0) {
+  if (req.body && typeof req.body === "object" && Object.keys(req.body).length > 0) {
     console.log(`📋 Request body:`, JSON.stringify(req.body, null, 2));
   }
   next();
@@ -118,131 +119,63 @@ app.post("/inject-prompt", requireSession, async (req, res) => {
 
     const page = sessionManager.getPage();
 
-    // Method 1: Direct value injection with React event triggering
+    // Method 1: Use page.fill() with focused element
     try {
-      console.log("🔧 Method 1: Direct injection with React events");
-
-      const injected = await page.evaluate(async (promptText) => {
-        // Find the input field - ChatGPT uses contenteditable
-        const selectors = [
-          "#prompt-textarea", // ChatGPT's main textarea
-          'textarea[placeholder*="Message"]',
-          'div[contenteditable="true"]',
-          'div[role="textbox"]',
-          ".ProseMirror", // Common in modern editors
-          "p[data-placeholder]", // Placeholder paragraphs
-        ];
-
-        let inputElement = null;
-        let method = "";
-
-        // Try each selector
-        for (const selector of selectors) {
-          const element = document.querySelector(selector);
-          if (element) {
-            inputElement = element;
-            method = selector;
-            break;
-          }
-        }
-
-        if (!inputElement) {
-          // Fallback: find by traversing from composer button
-          const composer = document.querySelector('[aria-label="Message Composer"]');
-          if (composer) {
-            inputElement = composer.querySelector('p, div[contenteditable="true"], textarea');
-            method = "composer-child";
-          }
-        }
-
-        if (!inputElement) {
-          return { success: false, error: "No input field found", tried: selectors };
-        }
-
-        // Clear existing content
-        if (inputElement.tagName === "TEXTAREA" || inputElement.tagName === "INPUT") {
-          // Regular input/textarea
-          inputElement.focus();
-          inputElement.value = "";
-          inputElement.value = promptText;
-
-          // Trigger React events
-          const inputEvent = new Event("input", { bubbles: true, cancelable: true });
-          const changeEvent = new Event("change", { bubbles: true, cancelable: true });
-          inputElement.dispatchEvent(inputEvent);
-          inputElement.dispatchEvent(changeEvent);
-        } else {
-          // ContentEditable div/p
-          inputElement.focus();
-          inputElement.textContent = promptText;
-          inputElement.innerText = promptText;
-
-          // Trigger input event for contenteditable
-          const inputEvent = new InputEvent("input", {
-            bubbles: true,
-            cancelable: true,
-            inputType: "insertText",
-            data: promptText,
-          });
-          inputElement.dispatchEvent(inputEvent);
-
-          // Also trigger these for good measure
-          inputElement.dispatchEvent(new Event("change", { bubbles: true }));
-          inputElement.dispatchEvent(new Event("keyup", { bubbles: true }));
-        }
-
-        return {
-          success: true,
-          method: method,
-          elementType: inputElement.tagName,
-          contentLength: promptText.length,
-        };
-      }, prompt);
-
-      if (injected.success) {
-        console.log(`✅ Injection successful via ${injected.method} (${injected.elementType})`);
-        console.log(`📝 Injected ${injected.contentLength} characters`);
-
-        // Small delay to ensure React processes the change
-        await page.waitForTimeout(500);
-
-        res.json({
-          success: true,
-          message: "Prompt injected successfully",
-          method: injected.method,
-          elementType: injected.elementType,
-        });
-        return;
-      } else {
-        console.log(`⚠️ Method 1 failed: ${injected.error}`);
-        console.log(`🔍 Tried selectors: ${JSON.stringify(injected.tried)}`);
-      }
+      console.log("🔧 Method 1: Using page.fill()");
+      console.log(`📏 Prompt to inject: "${prompt}"`);
+      
+      await page.fill(':focus', prompt);
+      console.log("✅ page.fill() completed");
+      
+      console.log("👁️ Observing after page.fill()...");
+      const afterFillObservation = await page.observe("What text is now visible in the input field? Did the fill work?");
+      console.log(`📋 AFTER FILL OBSERVATION:`, JSON.stringify(afterFillObservation, null, 2));
+      
+      res.json({
+        success: true,
+        message: "Prompt injected successfully with page.fill()",
+        method: "page.fill",
+        observation: afterFillObservation
+      });
+      return;
+      
     } catch (error) {
-      console.log(`⚠️ Method 1 error: ${error.message}`);
+      console.log(`❌ page.fill() error:`, error.message);
     }
 
-    // Method 2: Click and paste via clipboard (fallback)
-    console.log("🔧 Method 2: Clipboard injection fallback");
+    // Method 2: Try pressSequentially() as fallback
+    try {
+      console.log("🔧 Method 2: Using pressSequentially()");
+      
+      // Clear any existing content first
+      await page.keyboard.press('Meta+a'); // Select all
+      await page.waitForTimeout(100);
+      
+      console.log(`⌨️ Typing prompt character by character: "${prompt}"`);
+      await page.keyboard.pressSequentially(prompt);
+      console.log("✅ pressSequentially() completed");
+      
+      console.log("👁️ Observing after pressSequentially()...");
+      const afterTypeObservation = await page.observe("What text is now visible in the input field? Did the typing work?");
+      console.log(`📋 AFTER TYPING OBSERVATION:`, JSON.stringify(afterTypeObservation, null, 2));
+      
+      res.json({
+        success: true,
+        message: "Prompt injected successfully with pressSequentially()",
+        method: "pressSequentially",
+        observation: afterTypeObservation
+      });
+      return;
+      
+    } catch (error) {
+      console.log(`❌ pressSequentially() error:`, error.message);
+    }
 
-    // Set clipboard content
-    await page.evaluate(async (text) => {
-      await navigator.clipboard.writeText(text);
-    }, prompt);
-    console.log("📋 Prompt copied to clipboard");
-
-    // Click on the input area
-    await page.click('[aria-label="Message Composer"]').catch(() => {});
-    await page.waitForTimeout(300);
-
-    // Paste using keyboard shortcut
-    const isMac = process.platform === "darwin";
-    await page.keyboard.press(isMac ? "Meta+V" : "Control+V");
-    console.log(`✅ Pasted via ${isMac ? "Cmd" : "Ctrl"}+V`);
-
-    res.json({
-      success: true,
-      message: "Prompt injected via clipboard",
-      method: "clipboard",
+    // If both methods failed
+    res.status(500).json({
+      success: false,
+      error: "Both fill() and pressSequentially() methods failed",
+      methods_tried: ["fill", "pressSequentially"]
     });
 
     /* Method 3: Form value setting (commented out as requested)
@@ -459,6 +392,7 @@ app.post("/init", async (req, res) => {
   console.log("🔍 Debug: Entered /init endpoint");
   try {
     console.log("🔄 Received init request");
+    console.log("🔍 Debug: Request body:", JSON.stringify(req.body, null, 2));
 
     // Close existing session if any
     if (sessionManager && sessionManager.isInitialized) {
@@ -481,9 +415,10 @@ app.post("/init", async (req, res) => {
       console.log("🔍 Debug: StagehandSessionManager constructor completed successfully");
     } catch (constructorError) {
       console.error("🔍 Debug: StagehandSessionManager constructor failed:", constructorError);
+      console.error("🔍 Debug: Constructor error stack:", constructorError.stack);
       throw constructorError;
     }
-    
+
     console.log("🔍 Debug: StagehandSessionManager created, calling initialize()");
     const result = await sessionManager.initialize();
     console.log("🔍 Debug: Initialize completed, result:", result);
@@ -495,9 +430,12 @@ app.post("/init", async (req, res) => {
     console.error("❌ Init error:", message);
     console.error("🔍 Debug: Full error object:", error);
     console.error("🔍 Debug: Error stack:", error.stack);
+    console.error("🔍 Debug: Error name:", error.name);
+    console.error("🔍 Debug: Error constructor:", error.constructor.name);
     res.status(500).json({
       success: false,
       error: message,
+      errorName: error.name,
       stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
@@ -544,14 +482,42 @@ app.post("/navigate", requireSession, async (req, res) => {
 
     const page = sessionManager.getPage();
     const startTime = Date.now();
-    await page.goto(url);
+
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    } catch (navError) {
+      console.warn(`⚠️ Navigation failed, attempting recovery: ${navError.message}`);
+
+      // If frame ID error, try to reinitialize the session
+      if (navError.message.includes("No frame with given id found") || navError.message.includes("Protocol error")) {
+        console.log("🔄 Detected frame/protocol error, reinitializing session...");
+
+        try {
+          await sessionManager.close();
+          const initResult = await sessionManager.initialize();
+          if (!initResult.success) {
+            throw new Error(`Reinitialization failed: ${initResult.error}`);
+          }
+
+          console.log("✅ Session reinitialized, retrying navigation...");
+          const newPage = sessionManager.getPage();
+          await newPage.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+        } catch (retryError) {
+          throw new Error(`Navigation failed after recovery attempt: ${retryError.message}`);
+        }
+      } else {
+        throw navError;
+      }
+    }
+
     const loadTime = Date.now() - startTime;
+    const currentPage = sessionManager.getPage();
 
     const result = {
       success: true,
       message: `Navigated to ${url}`,
-      url: page.url(),
-      title: await page.title(),
+      url: currentPage.url(),
+      title: await currentPage.title(),
       loadTimeMs: loadTime,
     };
 
@@ -576,15 +542,20 @@ app.post("/act", requireSession, async (req, res) => {
       return handleValidationError(validation.error, res);
     }
 
-    const { action } = validation.data;
+    const { action, domSettleTimeoutMs } = validation.data;
     console.log(`🎬 Performing action: ${action}`);
 
     const page = sessionManager.getPage();
     const startTime = Date.now();
-    const result = await page.act(action);
+    
+    // Use optional domSettleTimeoutMs if provided
+    const actionOptions = domSettleTimeoutMs ? { domSettleTimeoutMs } : {};
+    const result = await page.act(action, actionOptions);
     const executionTime = Date.now() - startTime;
 
     console.log(`✅ Action completed in ${executionTime}ms`);
+    console.log(`📋 ACTION RESULT:`, JSON.stringify(result, null, 2));
+    
     res.json({
       success: true,
       data: result,
@@ -605,35 +576,32 @@ app.post("/act", requireSession, async (req, res) => {
 // Observe page
 app.post("/observe", requireSession, async (req, res) => {
   try {
-    // Validate request
-    const validation = ObserveRequestSchema.safeParse(req.body);
-    if (!validation.success) {
-      return handleValidationError(validation.error, res);
+    const { instruction, drawOverlay } = req.body;
+    if (!instruction) {
+      return res.status(400).json({
+        success: false,
+        error: "No instruction provided"
+      });
     }
 
-    const { instruction } = validation.data;
     console.log(`👁️  Observing: ${instruction}`);
 
     const page = sessionManager.getPage();
-    const observeInstruction = `Look at the current page and check if this content is visible: ${instruction}. Focus on clickable items, text content, document body, and any readable text.`;
+    const options = drawOverlay ? { screenshot: true } : {};
+    const result = await page.observe(instruction, options);
 
-    console.log(`🔍 Full observation instruction: ${observeInstruction}`);
-    const result = await page.observe(observeInstruction, { screenshot: true });
+    console.log(`📋 OBSERVATION RESULT:`, JSON.stringify(result, null, 2));
 
-    console.log(`✅ Observation completed, found ${Array.isArray(result) ? result.length : 0} items`);
     res.json({
       success: true,
-      data: result,
-      message: `Observation completed: ${instruction}`,
-      itemCount: Array.isArray(result) ? result.length : 0,
+      data: result
     });
   } catch (error) {
     const message = isErrorWithMessage(error) ? error.message : String(error);
     console.error("❌ Observation error:", message);
     res.status(500).json({
       success: false,
-      error: message,
-      instruction: req.body.instruction,
+      error: message
     });
   }
 });
@@ -660,6 +628,8 @@ app.post("/extract", requireSession, async (req, res) => {
     });
 
     console.log("✅ Extraction completed");
+    console.log(`📋 EXTRACTION RESULT:`, JSON.stringify(result, null, 2));
+    
     res.json({
       success: true,
       data: result,
@@ -676,134 +646,125 @@ app.post("/extract", requireSession, async (req, res) => {
   }
 });
 
-// Clipboard-based paste endpoint
+// Paste content using ONLY execCommand insertText
 app.post("/paste-clipboard", requireSession, async (req, res) => {
   try {
-    // Validate request
-    const validation = PasteClipboardRequestSchema.safeParse(req.body);
-    if (!validation.success) {
-      return handleValidationError(validation.error, res);
+    const { content } = req.body;
+    if (!content) {
+      return res.status(400).json({
+        success: false,
+        error: "No content provided"
+      });
     }
 
-    const { content, target_description } = validation.data;
-    console.log(`📋 Clipboard paste: ${content.substring(0, 100)}... to ${target_description}`);
+    console.log(`📋 Paste content: "${content}"`);
     console.log(`📏 Content length: ${content.length} characters`);
 
     const page = sessionManager.getPage();
 
-    // Step 1: Grant clipboard permissions
-    const context = page.context();
-    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    console.log("✅ Clipboard permissions granted");
+    // Step 1: Observe what's currently on the page
+    console.log("👁️ Observing page before paste...");
+    const beforeObservation = await page.observe("What text input fields, editors, or content areas are visible and active on this page?");
+    console.log(`📋 BEFORE OBSERVATION:`, JSON.stringify(beforeObservation, null, 2));
 
-    // Step 2: Set clipboard content programmatically (with user activation)
-    try {
-      // Create user activation by simulating click
-      await page.evaluate(() => {
-        document.body.click();
+    // Step 2: Paste using ONLY execCommand insertText
+    const pasteResult = await page.evaluate(async (textToPaste) => {
+      console.log(`🚀 Starting paste in browser context`);
+      console.log(`📝 Text to paste: "${textToPaste}"`);
+      
+      // Find the active/focused element
+      let targetElement = document.activeElement;
+      console.log(`🎯 Active element:`, targetElement);
+      console.log(`🎯 Active element tag: ${targetElement ? targetElement.tagName : 'null'}`);
+      console.log(`🎯 Active element type: ${targetElement ? targetElement.type : 'null'}`);
+      console.log(`🎯 Active element contentEditable: ${targetElement ? targetElement.contentEditable : 'null'}`);
+      
+      if (!targetElement || 
+          (targetElement.tagName !== 'TEXTAREA' && 
+           targetElement.tagName !== 'INPUT' && 
+           targetElement.contentEditable !== 'true')) {
+        
+        console.log(`❌ No suitable active element for pasting`);
+        return { 
+          success: false, 
+          error: "No active input element found - please focus an input field first",
+          activeElement: document.activeElement ? document.activeElement.tagName : 'null'
+        };
+      }
+      
+      console.log(`🎯 Target element for paste:`, targetElement);
+      console.log(`🎯 Target tag: ${targetElement.tagName}`);
+      console.log(`🎯 Target id: ${targetElement.id}`);
+      console.log(`🎯 Target class: ${targetElement.className}`);
+      
+      // Get current content before paste
+      const beforeContent = targetElement.value || targetElement.textContent || targetElement.innerText || '';
+      console.log(`📄 Content before paste: "${beforeContent}"`);
+      
+      // Use execCommand to paste text at cursor position
+      console.log(`💉 Executing insertText command with: "${textToPaste}"`);
+      const insertResult = document.execCommand('insertText', false, textToPaste);
+      console.log(`💉 execCommand result:`, insertResult);
+      
+      // Get final content after paste
+      const afterContent = targetElement.value || targetElement.textContent || targetElement.innerText || '';
+      console.log(`✅ Content after paste: "${afterContent}"`);
+      console.log(`✅ Content length after: ${afterContent.length}`);
+      console.log(`✅ Content includes pasted text: ${afterContent.includes(textToPaste)}`);
+      
+      return {
+        success: insertResult,
+        elementTag: targetElement.tagName,
+        elementId: targetElement.id,
+        elementClass: targetElement.className,
+        beforeContent: beforeContent,
+        afterContent: afterContent,
+        beforeLength: beforeContent.length,
+        afterLength: afterContent.length,
+        textWasPasted: afterContent.includes(textToPaste),
+        execCommandResult: insertResult
+      };
+    }, content);
+
+    console.log(`📊 Paste result:`, JSON.stringify(pasteResult, null, 2));
+
+    // Step 3: Observe what changed after paste
+    console.log("👁️ Observing page after paste...");
+    const afterObservation = await page.observe("What content is now visible in the text input fields or editors? What changed?");
+    console.log(`📋 AFTER OBSERVATION:`, JSON.stringify(afterObservation, null, 2));
+
+    if (pasteResult.success) {
+      console.log(`✅ Paste successful via execCommand`);
+      console.log(`📝 Element: ${pasteResult.elementTag} (${pasteResult.elementId || 'no-id'})`);
+      console.log(`📝 Before length: ${pasteResult.beforeLength}, After length: ${pasteResult.afterLength}`);
+      console.log(`📝 Text was pasted: ${pasteResult.textWasPasted}`);
+
+      res.json({
+        success: true,
+        message: "Content pasted successfully with execCommand",
+        method: "execCommand_insertText",
+        details: pasteResult,
+        beforeObservation: beforeObservation,
+        afterObservation: afterObservation
       });
-
-      await page.evaluate(async (text) => {
-        await navigator.clipboard.writeText(text);
-      }, content);
-      console.log("✅ Content written to clipboard");
-    } catch (clipboardError) {
-      console.log("⚠️ Direct clipboard write failed, using alternative method");
-      // Fallback: Use document focus and retry
-      await page.focus("body");
-      await page.waitForTimeout(500);
-
-      try {
-        await page.evaluate(async (text) => {
-          await navigator.clipboard.writeText(text);
-        }, content);
-        console.log("✅ Content written to clipboard (fallback method)");
-      } catch (e) {
-        const errorMsg = isErrorWithMessage(e) ? e.message : String(e);
-        console.log("❌ Both clipboard methods failed:", errorMsg);
-        throw new Error(`Clipboard write failed: ${errorMsg}`);
-      }
-    }
-
-    // Step 3: Focus the target area (for Google Docs, multiple attempts)
-    if (target_description.includes("document") || target_description.includes("Google")) {
-      console.log("📄 Detected document target, trying multiple focus strategies...");
-
-      // Try multiple selectors for Google Docs focus
-      const selectors = [
-        'canvas[class*="kix-canvas"]',
-        '[role="textbox"]',
-        '[contenteditable="true"]',
-        ".kix-appview-editor",
-        "canvas",
-        "body",
-      ];
-
-      let focused = false;
-      for (const selector of selectors) {
-        try {
-          await page.click(selector, { timeout: 2000 });
-          await page.waitForTimeout(500);
-          console.log(`✅ Focused using selector: ${selector}`);
-          focused = true;
-          break;
-        } catch (e) {
-          console.log(`⚠️ Focus attempt failed for ${selector}`);
-        }
-      }
-
-      if (!focused) {
-        // Force focus using JavaScript
-        await page.evaluate(() => {
-          document.body.focus();
-          document.body.click();
-        });
-        console.log("✅ Force focused using JavaScript");
-      }
-
-      // Additional Mac-specific focus handling
-      const isMac = process.platform === "darwin";
-      if (isMac) {
-        await page.keyboard.press("Tab");
-        await page.waitForTimeout(300);
-        console.log("✅ Mac: Additional Tab focus");
-      }
-    }
-
-    // Step 4: Use keyboard shortcut to paste (cross-platform)
-    const isMac = process.platform === "darwin";
-    const modifier = isMac ? "Meta" : "Control";
-
-    // For Mac, try multiple paste approaches
-    if (isMac) {
-      console.log("🍎 Mac detected - using enhanced paste sequence");
-      await page.keyboard.press("Meta+V");
-      await page.waitForTimeout(500);
-      // Fallback: try Command+Shift+V (paste without formatting)
-      await page.keyboard.press("Meta+Shift+V");
-      console.log(`✅ Mac paste executed (Meta+V + Meta+Shift+V)`);
     } else {
-      await page.keyboard.press("Control+V");
-      console.log(`✅ Windows/Linux paste executed (Control+V)`);
+      console.log(`❌ Paste failed:`, pasteResult.error);
+      
+      res.status(500).json({
+        success: false,
+        error: pasteResult.error,
+        method: "execCommand_insertText",
+        details: pasteResult,
+        beforeObservation: beforeObservation,
+        afterObservation: afterObservation
+      });
     }
-
-    // Step 5: Wait for paste to complete
-    await page.waitForTimeout(1500);
-
-    console.log("✅ Clipboard paste completed");
-    res.json({
-      success: true,
-      message: "Content pasted via clipboard",
-      method: "keyboard_shortcut",
-      modifier_used: modifier,
-      contentLength: content.length,
-    });
   } catch (error) {
     const message = isErrorWithMessage(error) ? error.message : String(error);
-    console.error("❌ Clipboard paste error:", message);
+    console.error("❌ Paste error:", message);
     res.status(500).json({
       success: false,
-      error: message,
+      error: message
     });
   }
 });
@@ -823,7 +784,7 @@ app.post("/agent", requireSession, async (req, res) => {
 
     const stagehand = sessionManager.getStagehand();
     const agent = stagehand.agent({
-      model: model,
+      model: "computer-use-preview",
       instructions:
         "You are a helpful web navigation assistant that helps users find information. Do not ask follow up questions, the user will trust your judgement.",
       maxSteps: maxSteps,
